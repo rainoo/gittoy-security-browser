@@ -1,8 +1,14 @@
 package com.gittoy.security.browser;
 
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+
+import com.gittoy.security.core.properties.SecurityProperties;
 
 /**
  * BrowserSecurityConfig.java
@@ -36,14 +42,29 @@ import org.springframework.security.config.annotation.web.configuration.WebSecur
 @Configuration
 public class BrowserSecurityConfig extends WebSecurityConfigurerAdapter {
 
+	@Autowired
+	private SecurityProperties securityProperties;
+
+	@Bean
+	public PasswordEncoder passwordEncoder() {
+		return new BCryptPasswordEncoder();
+	}
+
 	@Override
 	protected void configure(HttpSecurity http) throws Exception {
 
 		// 表单登录指定进行身份认证方式：其它方式 http.httpBasic()
 		http.formLogin()
+				.loginPage("/authentication/require") // 指定登录页面
+				.loginProcessingUrl("/authentication/form")
 				.and() // 授权配置
 				.authorizeRequests() // 对请求进行授权
+				.antMatchers("/authentication/require",
+						securityProperties.getBrowser().getLoginPage()).permitAll() // 匹配到该网页后不需要身份认证
 				.anyRequest() // 任何请求
-				.authenticated(); // 都需要身份认证
+				.authenticated() // 都需要身份认证
+				.and()
+				.csrf().disable(); // 跨站防护功能去除 CSRF Token
+
 	}
 }

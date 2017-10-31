@@ -6,18 +6,17 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.web.authentication.AuthenticationFailureHandler;
-import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
-import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.authentication.rememberme.JdbcTokenRepositoryImpl;
 import org.springframework.security.web.authentication.rememberme.PersistentTokenRepository;
 
+import com.gittoy.security.core.authentication.AbstractChannelSecurityConfig;
+import com.gittoy.security.core.authentication.mobile.SmsCodeAuthenticationSecurityConfig;
+import com.gittoy.security.core.properties.SecurityConstants;
 import com.gittoy.security.core.properties.SecurityProperties;
-import com.gittoy.security.core.validate.code.ValidateCodeFilter;
+import com.gittoy.security.core.validate.code.ValidateCodeSecurityConfig;
 
 /**
  * BrowserSecurityConfig.java
@@ -25,22 +24,50 @@ import com.gittoy.security.core.validate.code.ValidateCodeFilter;
  * @author GaoYu 2017年10月26日 下午3:46:23
  */
 @Configuration
-public class BrowserSecurityConfig extends WebSecurityConfigurerAdapter {
+public class BrowserSecurityConfig extends AbstractChannelSecurityConfig {
 
 	@Autowired
 	private SecurityProperties securityProperties;
-
-	@Autowired
-	private AuthenticationSuccessHandler gittoyAuthenticationSuccessHandler;
-
-	@Autowired
-	private AuthenticationFailureHandler gittoyAuthenticationFailureHandler;
 
 	@Autowired
 	private DataSource dataSource;
 
 	@Autowired
 	private UserDetailsService userDetailsService;
+
+	@Autowired
+	private SmsCodeAuthenticationSecurityConfig smsCodeAuthenticationSecurityConfig;
+
+	@Autowired
+	private ValidateCodeSecurityConfig validateCodeSecurityConfig;
+
+	@Override
+	protected void configure(HttpSecurity http) throws Exception {
+
+		applyPasswordAuthenticationConfig(http);
+
+		http.apply(validateCodeSecurityConfig) // 校验码相关配置
+				.and()
+			.apply(smsCodeAuthenticationSecurityConfig) // 短信相关配置
+				.and()
+			.rememberMe() // 浏览器特有配置：记住我
+				.tokenRepository(persistentTokenRepository())
+				.tokenValiditySeconds(securityProperties.getBrowser().getRememberMeSeconds())
+				.userDetailsService(userDetailsService)
+				.and()
+			.authorizeRequests() // 浏览器特有配置：授权相关
+				.antMatchers(
+					SecurityConstants.DEFAULT_UNAUTHENTICATION_URL,
+					SecurityConstants.DEFAULT_LOGIN_PROCESSING_URL_MOBILE,
+					securityProperties.getBrowser().getLoginPage(),
+					SecurityConstants.DEFAULT_VALIDATE_CODE_URL_PREFIX + "/*")
+					.permitAll()
+				.anyRequest()
+				.authenticated()
+				.and()
+			.csrf().disable();
+
+	}
 
 	@Bean
 	public PasswordEncoder passwordEncoder() {
@@ -55,37 +82,6 @@ public class BrowserSecurityConfig extends WebSecurityConfigurerAdapter {
 		return tokenRepository;
 	}
 
-	@Override
-	protected void configure(HttpSecurity http) throws Exception {
-
-		ValidateCodeFilter validateCodeFilter = new ValidateCodeFilter();
-		validateCodeFilter.setAuthenticationFailureHandler(gittoyAuthenticationFailureHandler);
-		validateCodeFilter.setSecurityProperties(securityProperties);
-		validateCodeFilter.afterPropertiesSet();
-
-		// 表单登录指定进行身份认证方式：其它方式 http.httpBasic()
-		http.addFilterBefore(validateCodeFilter, UsernamePasswordAuthenticationFilter.class) // 将自定义的filter加到UsernamePasswordAuthenticationFilter前面
-			.formLogin()
-				.loginPage("/authentication/require") // 指定登录页面
-				.loginProcessingUrl("/authentication/form")
-				.successHandler(gittoyAuthenticationSuccessHandler) // 登录成功后会使用用户定义的成功处理器
-				.failureHandler(gittoyAuthenticationFailureHandler) // 登录失败处理器
-			.and()
-			.rememberMe() // 记住我配置
-				.tokenRepository(persistentTokenRepository())
-				.tokenValiditySeconds(securityProperties.getBrowser().getRememberMeSeconds())
-				.userDetailsService(userDetailsService)
-			.and() // 授权配置
-			.authorizeRequests() // 对请求进行授权
-				.antMatchers("/authentication/require",
-						securityProperties.getBrowser().getLoginPage(),
-						"/code/image").permitAll() // 匹配到该网页后不需要身份认证
-				.anyRequest() // 任何请求
-				.authenticated() // 都需要身份认证
-			.and()
-			.csrf().disable(); // 跨站防护功能去除 CSRF Token
-
-	}
 }
 /** ===========================================================================
 
